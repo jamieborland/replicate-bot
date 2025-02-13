@@ -5,7 +5,7 @@ import discord
 from discord.ext import commands
 from discord import File
 from state import user_generated_images  
-
+from utils.prompt_manager import get_prompt_by_index
 class GenerationCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -13,17 +13,33 @@ class GenerationCog(commands.Cog):
     @commands.command()
     async def flux(self, ctx, *args):
         """
-        Generate N images from a text prompt using the Flux Schnell model.
+        Generate images using the Flux Schnell model with a stored prompt.
+        Usage: !flux prompt[<index>] [number_of_outputs]
+        Example: !flux prompt[1] 3
         """
-        num_outputs = 1
-        if args and args[0].isdigit():
-            num_outputs = int(args[0])
-            prompt = " ".join(args[1:])
-        else:
-            prompt = " ".join(args)
+        if not args or not (args[0].startswith("prompt[") and args[0].endswith("]")):
+            await ctx.send("Please specify a stored prompt, e.g. `!flux prompt[1] [number_of_outputs]`.")
+            return
 
+        try:
+            prompt_index = int(args[0][len("prompt["):-1])
+        except ValueError:
+            await ctx.send("Invalid prompt index.")
+            return
+
+        # Retrieve the stored prompt.
+        prompt = get_prompt_by_index(ctx.author.id, prompt_index)
+        if not prompt:
+            await ctx.send(f"No stored prompt found at index {prompt_index}. Use `!fluxgpt` to generate one.")
+            return
+
+        # Determine number of outputs.
+        num_outputs = 1
+        if len(args) > 1 and args[1].isdigit():
+            num_outputs = int(args[1])
         num_outputs = max(1, min(num_outputs, 4))
-        msg = await ctx.send(f"{prompt}\n> Generating {num_outputs} images...")
+
+        msg = await ctx.send(f"Using stored prompt (index {prompt_index}):\n> {prompt}\n> Generating {num_outputs} images...")
 
         output = replicate.run(
             "black-forest-labs/flux-schnell",
@@ -35,7 +51,7 @@ class GenerationCog(commands.Cog):
             image_bytes = img_file.read()
             file_data = io.BytesIO(image_bytes)
             sent = await ctx.send(
-                content=f"> **Image {idx}** for prompt: {prompt}",
+                content=f"> **Image {idx}** for stored prompt (index {prompt_index})",
                 file=File(file_data, f"flux_{idx}.png")
             )
             if sent.attachments:
@@ -90,9 +106,41 @@ class GenerationCog(commands.Cog):
     @commands.command()
     async def stable35(self, ctx, *args):
         """
-        Generate images using the 'stability-ai/stable-diffusion-3.5-large' model on Replicate.
+        Generate images using the 'stability-ai/stable-diffusion-3.5-large' model with a stored prompt.
+        Usage: !stable35 prompt[<index>] [optional_input_image_index]
+        Example: !stable35 prompt[1] 2
+        If an optional input image index is provided, that previously generated image will be used as a starting point.
         """
+        if not args or not (args[0].startswith("prompt[") and args[0].endswith("]")):
+            await ctx.send("Please specify a stored prompt, e.g. `!stable35 prompt[1] [input_image_index]`.")
+            return
 
+        try:
+            prompt_index = int(args[0][len("prompt["):-1])
+        except ValueError:
+            await ctx.send("Invalid prompt index.")
+            return
+
+        # Retrieve the stored prompt.
+        prompt = get_prompt_by_index(ctx.author.id, prompt_index)
+        if not prompt:
+            await ctx.send(f"No stored prompt found at index {prompt_index}. Use `!fluxgpt` to generate one.")
+            return
+
+        # Optional second argument: input image index.
+        input_image_url = None
+        if len(args) > 1 and args[1].isdigit():
+            image_index = int(args[1])
+            urls = user_generated_images.get(ctx.author.id, [])
+            if not urls:
+                await ctx.send("You have no generated images to use as input. Please generate one first with `!flux`.")
+                return
+            if image_index < 1 or image_index > len(urls):
+                await ctx.send(f"Invalid image index. Choose between 1 and {len(urls)}.")
+                return
+            input_image_url = urls[image_index - 1]
+
+        # Define parameters for Stable Diffusion 3.5.
         cfg = 3.5
         steps = 28
         aspect_ratio = "1:1"
@@ -100,34 +148,9 @@ class GenerationCog(commands.Cog):
         output_quality = 90
         prompt_strength = 0.85
 
-        # 1) Check if first arg is a digit for image index:
-        index = None
-        if args and args[0].isdigit():
-            index = int(args[0])
-            prompt = " ".join(args[1:])
-        else:
-            prompt = " ".join(args)
-
-        prompt = prompt.strip()
-        if not prompt:
-            await ctx.send("Please provide a prompt. Usage: `!stable35 <optional index> <prompt>`")
-            return
-
-        input_image_url = None
-        if index is not None:
-            urls = user_generated_images.get(ctx.author.id, [])
-            if not urls:
-                await ctx.send("You have no generated images to use. Please generate one first with `!flux`.")
-                return
-            if index < 1 or index > len(urls):
-                await ctx.send(f"Invalid image index. Pick a number 1–{len(urls)}.")
-                return
-            input_image_url = urls[index - 1]
-
-        msg_text = f"**Stable Diffusion 3.5** generation in progress...\nPrompt: `{prompt}`"
+        msg_text = f"**Stable Diffusion 3.5** generation in progress...\nStored Prompt (index {prompt_index}): `{prompt}`"
         if input_image_url:
-            msg_text += f"\nUsing image #{index} as a starting point..."
-
+            msg_text += f"\nUsing image #{args[1]} as a starting point..."
         msg = await ctx.send(msg_text)
 
         sd_input = {
