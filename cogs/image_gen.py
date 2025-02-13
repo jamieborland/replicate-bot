@@ -6,11 +6,13 @@ from discord.ext import commands
 from discord import File
 from state import user_generated_images  
 from utils.prompt_manager import get_prompt_by_index
+from utils.image_manager import add_images, get_image_by_index
 class GenerationCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @commands.command()
+    
     async def flux(self, ctx, *args):
         """
         Generate images using the Flux Schnell model with a stored prompt.
@@ -57,51 +59,78 @@ class GenerationCog(commands.Cog):
             if sent.attachments:
                 generated_urls.append(sent.attachments[0].url)
 
-        user_generated_images[ctx.author.id] = generated_urls
+        add_images(ctx.author.id, generated_urls)
         await msg.delete()
+    @commands.command()
+    async def listimages(self, ctx):
+        """
+        List all stored images (with their indexes) for the user.
+        Usage: !listimages
+        """
+        from utils.image_manager import list_images
+        images = list_images(ctx.author.id)
+        if not images:
+            await ctx.send("You have no stored images.")
+            return
 
+        message = "**Your Stored Images:**\n"
+        for idx, url in images:
+            message += f"**{idx}**: {url}\n"
+        await ctx.send(message)
 
+    
     @commands.command()
     async def redux(self, ctx, index_str: str = "1", aspect_ratio: str = "1:1"):
         """
         Take a previously generated image and run it through the Flux Redux model.
+        Usage: !redux <image_index> [aspect_ratio]
+        Example: !redux 2 3:2  (uses image at index 2 with aspect ratio 3:2)
         """
         try:
             index = int(index_str)
         except ValueError:
-            index = 1
-
-        urls = user_generated_images.get(ctx.author.id, [])
-        if not urls:
-            await ctx.send("You have no generated images to redux. Use `!flux` first!")
+            await ctx.send("Invalid image index. Please provide a number.")
             return
-
-        if index < 1 or index > len(urls):
-            await ctx.send(f"Invalid image index. Pick a number 1–{len(urls)}.")
+    
+        # Retrieve image URL from centralized image storage
+        redux_image_url = get_image_by_index(ctx.author.id, index)
+        
+        if not redux_image_url:
+            await ctx.send(f"Invalid image index {index}. Use `!listimages` to see your stored images.")
             return
-
-        redux_image_url = urls[index - 1]
+    
         msg = await ctx.send(f"Running Redux on image #{index} with aspect_ratio={aspect_ratio}...")
-
+    
         redux_input = {
             "redux_image": redux_image_url,
             "aspect_ratio": aspect_ratio,
         }
-
-        redux_output = replicate.run(
-            "black-forest-labs/flux-redux-schnell",
-            input=redux_input
-        )
-
+    
+        try:
+            redux_output = replicate.run(
+                "black-forest-labs/flux-redux-schnell",
+                input=redux_input
+            )
+        except Exception as e:
+            await msg.edit(content=f"Flux Redux generation failed: {e}")
+            return
+    
+        generated_urls = []
         for i, file_like in enumerate(redux_output, start=1):
             redux_bytes = file_like.read()
             redux_data = io.BytesIO(redux_bytes)
-            await ctx.send(
+            sent = await ctx.send(
                 content=f"Redux output {i} from image #{index}",
                 file=File(redux_data, f"redux_output_{i}.webp")
             )
-
+            if sent.attachments:
+                generated_urls.append(sent.attachments[0].url)
+    
+        # Store the newly generated Redux images in image storage
+        add_images(ctx.author.id, generated_urls)
+    
         await msg.delete()
+    
 
     @commands.command()
     async def stable35(self, ctx, *args):
@@ -131,14 +160,11 @@ class GenerationCog(commands.Cog):
         input_image_url = None
         if len(args) > 1 and args[1].isdigit():
             image_index = int(args[1])
-            urls = user_generated_images.get(ctx.author.id, [])
-            if not urls:
-                await ctx.send("You have no generated images to use as input. Please generate one first with `!flux`.")
+            # Use the image manager to get the input image.
+            input_image_url = get_image_by_index(ctx.author.id, image_index)
+            if not input_image_url:
+                await ctx.send(f"Invalid image index. You may not have an image at index {image_index}.")
                 return
-            if image_index < 1 or image_index > len(urls):
-                await ctx.send(f"Invalid image index. Choose between 1 and {len(urls)}.")
-                return
-            input_image_url = urls[image_index - 1]
 
         # Define parameters for Stable Diffusion 3.5.
         cfg = 3.5
@@ -186,7 +212,7 @@ class GenerationCog(commands.Cog):
             if sent.attachments:
                 generated_urls.append(sent.attachments[0].url)
 
-        user_generated_images[ctx.author.id] = generated_urls
+        add_images(ctx.author.id, generated_urls)
         await msg.delete()
 
 # This is required for the bot to load the cog
