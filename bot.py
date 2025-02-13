@@ -21,6 +21,7 @@ bot = commands.Bot(
 initial_cogs = [
     "cogs.image_gen",
     "cogs.prompt_gen",
+    "cogs.video_gen",
 ]
 
 async def main():

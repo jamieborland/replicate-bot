@@ -80,7 +80,7 @@ class PromptCog(commands.Cog):
         message = "**Your Stored Prompts:**\n"
         for index, prompt in prompts:
             # Show a preview (first 200 characters) for brevity.
-            preview = prompt 
+            preview = prompt[:200] + ("..." if len(prompt) > 200 else "")
             message += f"**{index}**: {preview}\n"
         await ctx.send(message)
 
