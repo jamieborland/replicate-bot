@@ -214,7 +214,51 @@ class GenerationCog(commands.Cog):
 
         add_images(ctx.author.id, generated_urls)
         await msg.delete()
+    @commands.command()
+    async def upscale(self, ctx, image_spec: str):
+        """
+        Upscale a stored image using the recraft-crisp-upscale model.
+        Usage: !upscale image[<index>]
+        Example: !upscale image[2]
+        """
+        # Validate that the user provided an image reference in the proper format.
+        if not (image_spec.startswith("image[") and image_spec.endswith("]")):
+            await ctx.send("Please specify the image to upscale using the format `image[<index>]`.")
+            return
+    
+        try:
+            image_index = int(image_spec[len("image["):-1])
+        except ValueError:
+            await ctx.send("Invalid image index format. Please use `image[<index>]` (e.g., image[2]).")
+            return
+    
+        # Retrieve the stored image URL using the image manager.
+        from utils.image_manager import get_image_by_index, add_images
+        image_url = get_image_by_index(ctx.author.id, image_index)
+        if image_url is None:
+            await ctx.send(f"No stored image found at index {image_index}.")
+            return
+    
+        msg = await ctx.send(f"Upscaling image from index {image_index}...")
+    
+        try:
+            output = replicate.run(
+                "recraft-ai/recraft-crisp-upscale",
+                input={"image": image_url}
+            )
+        except Exception as e:
+            await ctx.send(f"Upscale failed: {e}")
+            return
+    
+        # The upscale model returns a URI (string) as output.
+        upscaled_image_url = output
+    
+        # Store the upscaled image in the image manager.
+        add_images(ctx.author.id, [upscaled_image_url])
+    
+        await msg.edit(content=f"Upscaled image stored and available: {upscaled_image_url}")
 
+        
 # This is required for the bot to load the cog
 async def setup(bot):
     await bot.add_cog(GenerationCog(bot))

@@ -23,19 +23,23 @@ class PromptCog(commands.Cog):
 
         llm_input = {
             "system_prompt": (
-                "You are a helpful assistant that crafts short, descriptive prompts "
-                "for text-to-image generation. The user has provided a brief concept. "
-                "Please write a single, refined prompt focusing on relevant details. "
-                "Do not include extra disclaimers, just the prompt text. "
-                "Generate structured text-to-image prompts following this strict order: "
-                "(1) Main Subject, (2) Perspective & Camera Details, (3) Setting & Background, "
-                "(4) Key Visual Features, (5) Lighting & Mood, (6) Art Style & Detail Level, "
-                "(7) Color Palette & Effects (if applicable), (8) Negative Prompts (if supported), "
-                "ensuring clarity, coherence, and prioritization of key details."
+                "You are a helpful assistant that generates structured text-to-image prompts. "
+                "The user provides a brief concept, and you should return a single refined prompt "
+                "that smoothly incorporates all the following structured elements into a single descriptive text:\n\n"
+                "- A detailed description of the **main subject**.\n"
+                "- Perspective & camera details blended into the description.\n"
+                "- Background elements naturally included.\n"
+                "- Distinctive features smoothly described.\n"
+                "- Lighting & mood naturally incorporated.\n"
+                "- Art style & detail level blended without section labels.\n"
+                "- Color palette & effects integrated as part of the description.\n"
+                "- Negative prompts smoothly mentioned if necessary.\n\n"
+                "The final output should be a **single, natural-sounding paragraph** containing all these details. "
+                "Do not include any section labels, numbering, or explicit category names like 'Main Subject:' or 'Lighting:'."
             ),
             "prompt": user_concept,
             "temperature": 0.7,
-            "max_tokens": 350,
+            "max_tokens": 300,  # Keeping it high for structured but concise
             "stop_sequences": "<|end_of_text|>,<|eot_id|>",
         }
 
@@ -75,8 +79,8 @@ class PromptCog(commands.Cog):
 
         message = "**Your Stored Prompts:**\n"
         for index, prompt in prompts:
-            # Show a preview (first 50 characters) for brevity.
-            preview = prompt[:50] + ("..." if len(prompt) > 50 else "")
+            # Show a preview (first 200 characters) for brevity.
+            preview = prompt 
             message += f"**{index}**: {preview}\n"
         await ctx.send(message)
 
