@@ -24,6 +24,7 @@ initial_cogs = [
     "cogs.prompt_gen",
     "cogs.video_gen",
     "cogs.image_upload",
+    "cogs.add_prompt",
 ]
 
 async def main():
