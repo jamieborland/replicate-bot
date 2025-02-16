@@ -563,6 +563,175 @@ class GenerationCog(commands.Cog):
                 generated_urls.append(sent.attachments[0].url)
         add_images(ctx.author.id, generated_urls)
         await msg.delete()
+        
+    @commands.command()
+    async def multigen(self, ctx, *args):
+        """
+        Generate images using multiple models concurrently for the same prompt.
+        
+        Usage examples:
+          - Using a stored prompt: !multigen prompt[1]
+          - Using a direct prompt: !multigen A scenic landscape at sunset
+          - Optionally, include an image: !multigen prompt[1] image[2]
+        
+        This command calls a set of predefined models and returns all outputs.
+        """
+        stored_prompt = None
+        direct_prompt_parts = []
+        input_image_url = None
+
+        # Parse arguments for prompt[<index>], image[<index>], or direct text.
+        for arg in args:
+            if arg.startswith("prompt[") and arg.endswith("]"):
+                try:
+                    idx = int(arg[len("prompt["):-1])
+                    stored_prompt = get_prompt_by_index(ctx.author.id, idx)
+                    if not stored_prompt:
+                        await ctx.send(f"No stored prompt found at index {idx}.")
+                        return
+                except ValueError:
+                    await ctx.send("Invalid prompt index format.")
+                    return
+            elif arg.startswith("image[") and arg.endswith("]"):
+                try:
+                    idx = int(arg[len("image["):-1])
+                    input_image_url = get_image_by_index(ctx.author.id, idx)
+                    if not input_image_url:
+                        await ctx.send(f"No stored image found at index {idx}.")
+                        return
+                except ValueError:
+                    await ctx.send("Invalid image index format.")
+                    return
+            else:
+                direct_prompt_parts.append(arg)
+        
+        prompt = stored_prompt if stored_prompt else " ".join(direct_prompt_parts).strip()
+        if not prompt:
+            await ctx.send("Please provide a prompt either as a stored prompt (prompt[<index>]) or as direct text.")
+            return
+
+        msg = await ctx.send(f"Generating images concurrently for prompt:\n> {prompt}")
+
+        # Define the models to use and a lambda to generate their input dictionaries.
+        models = {
+            
+            "stable35": {
+                "replicate_id": "stability-ai/stable-diffusion-3.5-large",
+                "input": lambda prompt, image: {
+                    "prompt": prompt,
+                    "aspect_ratio": "1:1",
+                    "cfg": 3.5,
+                    "steps": 28,
+                    "output_format": "webp",
+                    "output_quality": 90,
+                    **({"image": image, "prompt_strength": 0.85} if image else {})
+                }
+            },
+            "sdxl": {
+                "replicate_id": "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
+                "input": lambda prompt, image: {
+                    "width": 768,
+                    "height": 768,
+                    "prompt": prompt,
+                    "refine": "expert_ensemble_refiner",
+                    "apply_watermark": False,
+                    "num_inference_steps": 25
+                }
+            },
+            "imagen": {
+                "replicate_id": "google/imagen-3",
+                "input": lambda prompt, image: {
+                    "prompt": prompt,
+                    "aspect_ratio": "1:1",
+                    "negative_prompt": "",
+                    "safety_filter_level": "block_medium_and_above"
+                }
+            },
+            "recraftv3": {
+                "replicate_id": "recraft-ai/recraft-v3",
+                "input": lambda prompt, image: {
+                    "prompt": prompt,
+                    "size": "1365x1024"
+                }
+            },
+            "playground": {
+                "replicate_id": "playgroundai/playground-v2.5-1024px-aesthetic:a45f82a1382bed5c7aeb861dac7c7d191b0fdf74d8d57c4a0e6ed7d4d0bf7d24",
+                "input": lambda prompt, image: {
+                    "prompt": prompt,
+                    "width": 1024,
+                    "height": 1024,
+                    "scheduler": "DPMSolver++",
+                    "num_outputs": 1,
+                    "guidance_scale": 3,
+                    "apply_watermark": True,
+                    "negative_prompt": "ugly, deformed, noisy, blurry, distorted",
+                    "prompt_strength": 0.8,
+                    "num_inference_steps": 25,
+                    "disable_safety_checker": False,
+                    **({"image": image} if image else {})
+                }
+            },
+            "fluxpro": {
+                "replicate_id": "black-forest-labs/flux-1.1-pro-ultra",
+                "input": lambda prompt, image: {
+                    "prompt": prompt,
+                    "aspect_ratio": "3:2",
+                    **({"image_prompt": image} if image else {})
+                }
+            }
+        }
+
+        # Define an async function to run each model.
+        async def run_model(model_key, model_info):
+            input_dict = model_info["input"](prompt, input_image_url)
+            try:
+                result = await asyncio.to_thread(
+                    replicate.run,
+                    model_info["replicate_id"],
+                    input=input_dict
+                )
+            except Exception as e:
+                return model_key, f"Error: {e}", None
+
+            # Process the output: if it's a list, read each item; otherwise, read single output.
+            outputs = []
+            if isinstance(result, list):
+                for item in result:
+                    try:
+                        outputs.append(item.read())
+                    except Exception as e:
+                        continue
+            else:
+                try:
+                    outputs.append(result.read())
+                except Exception as e:
+                    pass
+            return model_key, None, outputs
+
+        # Create and gather tasks for each model.
+        tasks = [run_model(key, info) for key, info in models.items()]
+        results = await asyncio.gather(*tasks)
+
+        all_generated_urls = []
+        for model_key, error, outputs in results:
+            if error:
+                await ctx.send(f"**{model_key}**: {error}")
+                continue
+            if not outputs:
+                await ctx.send(f"**{model_key}**: No output generated.")
+                continue
+            for idx, output_bytes in enumerate(outputs, start=1):
+                file_data = io.BytesIO(output_bytes)
+                # Use appropriate file extension; here we default to PNG.
+                filename = f"{model_key}_output_{idx}.png"
+                sent = await ctx.send(
+                    content=f"**{model_key.capitalize()} Output {idx}** for prompt:\n> {prompt}",
+                    file=File(file_data, filename)
+                )
+                if sent.attachments:
+                    all_generated_urls.append(sent.attachments[0].url)
+        add_images(ctx.author.id, all_generated_urls)
+        await msg.delete()
 
 async def setup(bot):
     await bot.add_cog(GenerationCog(bot))
