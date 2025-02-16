@@ -120,7 +120,7 @@ class GenerationCog(commands.Cog):
         try:
             redux_output = await asyncio.to_thread(
                 replicate.run,
-                "black-forest-labs/flux-redux-schnell",
+                "black-forest-labs/flux-redux-dev",
                 input=redux_input
             )
         except Exception as e:
