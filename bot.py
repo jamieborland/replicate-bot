@@ -1,14 +1,19 @@
-#bot.py
 import os
 import asyncio
+import threading
+import logging
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
+from flask import Flask
 
-import logging
+# Load environment variables
+load_dotenv()
+
+# Setup logging
 logging.basicConfig(level=logging.INFO)
-load_dotenv()  # Loads .env if present
 
+# Setup Discord bot
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -18,7 +23,7 @@ bot = commands.Bot(
     intents=intents
 )
 
-# List the cogs we want to load
+# List of cogs to load
 initial_cogs = [
     "cogs.image_gen",
     "cogs.prompt_gen",
@@ -35,5 +40,21 @@ async def main():
         # Start the bot
         await bot.start(os.environ["DISCORD_TOKEN"])
 
+# Flask server to keep Render from shutting down
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
+    # Start Flask in a separate thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    # Run the bot
     asyncio.run(main())
