@@ -278,7 +278,7 @@ class GenerationCog(commands.Cog):
 
         model_input = {
             "prompt": prompt,
-            "aspect_ratio": "3:2"
+            "aspect_ratio": "9:16"
         }
         if input_image_url:
             model_input["image_prompt"] = input_image_url
