@@ -31,6 +31,7 @@ initial_cogs = [
     "cogs.image_upload",
     "cogs.add_prompt",
     "cogs.video_upload",
+    "cogs.audio_gen",
 ]
 
 async def main():
