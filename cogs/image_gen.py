@@ -239,12 +239,20 @@ class GenerationCog(commands.Cog):
     async def fluxpro(self, ctx, *args):
         """
         Generate an image using the Flux 1.1 Pro Ultra model.
-        Usage: !fluxpro prompt[<index>] [image[<index>]] or direct prompt (optionally with image[<index>])
+        
+        Usage: 
+          !fluxpro prompt[<index>] [image[<index>]] [image_strength[n]]
+          or a direct prompt (optionally with image[<index>] and image_strength[n])
+          
+        Example:
+          !fluxpro prompt[1] image[2] image_strength[0.5]
+          !fluxpro an astronaut riding a horse image_strength[0.2]
         """
         stored_prompt = None
         direct_prompt_parts = []
         input_image_url = None
-
+        image_strength = 0.1  # Default image_prompt_strength
+    
         for arg in args:
             if arg.startswith("prompt[") and arg.endswith("]"):
                 try:
@@ -266,6 +274,16 @@ class GenerationCog(commands.Cog):
                 except ValueError:
                     await ctx.send("Invalid image index format.")
                     return
+            elif arg.startswith("image_strength[") and arg.endswith("]"):
+                try:
+                    value = float(arg[len("image_strength["):-1])
+                    if value < 0 or value > 1:
+                        await ctx.send("Image prompt strength must be between 0 and 1.")
+                        return
+                    image_strength = value
+                except ValueError:
+                    await ctx.send("Invalid image prompt strength format. Please provide a number between 0 and 1.")
+                    return
             else:
                 direct_prompt_parts.append(arg)
         
@@ -273,16 +291,17 @@ class GenerationCog(commands.Cog):
         if not prompt:
             await ctx.send("Please provide a prompt either as a stored prompt (prompt[<index>]) or as direct text.")
             return
-
+    
         msg = await ctx.send(f"Generating image using Flux 1.1 Pro Ultra for prompt:\n> {prompt}")
-
+    
         model_input = {
             "prompt": prompt,
-            "aspect_ratio": "9:16"
+            "aspect_ratio": "9:16",
+            "image_prompt_strength": image_strength
         }
         if input_image_url:
             model_input["image_prompt"] = input_image_url
-
+    
         try:
             output = await asyncio.to_thread(
                 replicate.run,
@@ -292,21 +311,22 @@ class GenerationCog(commands.Cog):
         except Exception as e:
             await msg.edit(content=f"Flux Pro generation failed: {e}")
             return
-
+    
         try:
             image_bytes = output.read()
         except Exception as e:
             await msg.edit(content=f"Error reading output: {e}")
             return
-
+    
         file_data = io.BytesIO(image_bytes)
         sent = await ctx.send(
             content=f"> **Flux Pro Output** for prompt:\n> {prompt}",
-            file=File(file_data, "fluxpro_output.jpg")
+            file=discord.File(file_data, "fluxpro_output.jpg")
         )
         if sent.attachments:
             add_images(ctx.author.id, [sent.attachments[0].url])
         await msg.delete()
+    
 
     @commands.command()
     async def sdxl(self, ctx, *args):
